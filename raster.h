@@ -13,20 +13,29 @@ void span(uint8_t*row,int x1,int x2,uint8_t colour){x1=std::max(0,x1);x2=std::mi
 void sceneSpan(uint8_t*row,int x1,int x2,uint8_t colour){span(row,std::max(viewLeft(),x1),std::min(viewRight(),x2),colour);}
 void skyRow(int stage,int y,uint8_t*row,int left,int right){int x=0;for(int i=skyRows[stage][y];i<skyRows[stage][y+1];++i){uint16_t word=skyStreams[stage][i];int len=(word>>6)+1;int a=std::max(left,x),b=std::min(right,x+len-1);if(a<=b)memset(row+a,uint8_t(192|(word&63)),b-a+1);x+=len;if(x>right)break;}}
 void backgroundRow(int y,uint8_t*row){memset(row,192,640);if(!rasterRoad||y<28||y>191)return;int stage=currentStage(),leftEdge=viewLeft(),width=viewRight()-leftEdge+1;
- if(y<horizon){skyRow(stage,y,row,leftEdge,viewRight());return;}
- RoadRow&r=roadRows[y];int left=int(r.x-r.w),right=int(r.x+r.w),band=int((race.z+r.dist)/40)&1;
+ if(y<horizon){skyRow(stage,28+(y-28)*60/std::max(1,horizon-28),row,leftEdge,viewRight());return;}
+ RoadRow&r=roadRows[y];int left=int(r.x-r.w),right=int(r.x+r.w),band=int((race.z+r.dist)/24)&1;
  const uint8_t shades[STAGES][2]={{200,201},{196,216},{219,203},{196,212},{213,208},{198,217}};memset(row+leftEdge,shades[stage][band],width);
  int shore=left-int(r.w*.65f);if((stage==0||stage==5)&&shore>leftEdge){sceneSpan(row,leftEdge,shore,stage==5?((int(race.z+r.dist)/85)&1?225:230):((int(race.z+r.dist)/85)&1?244:248));sceneSpan(row,shore,shore+std::max(2,int(r.w*.06f)),239);if((y+int(race.z/8))%9==0)sceneSpan(row,leftEdge,shore-4,stage==5?251:253);}
  if(y%9==0){sceneSpan(row,right+int(r.w*.3f),right+int(r.w*.3f)+4,stage==2?198:196);}
  int kerb=std::max(2,int(r.w*.065f));sceneSpan(row,left-kerb,left,band?255:195);sceneSpan(row,right,right+kerb,band?255:195);sceneSpan(row,left+1,right-1,192);
- if((int((race.z+r.dist)/26)&1)==0){int width=std::max(1,int(r.w*.013f));int a=int(r.x-r.w/3),b=int(r.x+r.w/3);sceneSpan(row,a-width,a+width,255);sceneSpan(row,b-width,b+width,255);}
+ if((int((race.z+r.dist)/18)&1)==0){int width=std::max(1,int(r.w*.013f));int a=int(r.x-r.w/3),b=int(r.x+r.w/3);sceneSpan(row,a-width,a+width,255);sceneSpan(row,b-width,b+width,255);}
+}
+// The sentinel 66 cannot be a transparent/opaque RGBA2222 pixel (0 or 192..255).
+// Packed assets have a per-row index followed by (run length, pixel) pairs.
+uint16_t assetOffset(const uint8_t*p){return uint16_t(p[0])|(uint16_t(p[1])<<8);}
+bool packedBitmap(const Bitmap*b){return b->data[0]==66&&b->data[1]==88;}
+void bitmapSpan(const Bitmap*b,int row,int first,int end,uint8_t*dst){
+ const uint8_t*data=b->data;
+ if(!packedBitmap(b)){const uint8_t*src=data+row*b->width+first;for(int x=first;x<end;++x){uint8_t p=*src++;if(p)*dst=p;++dst;}return;}
+ const uint8_t*base=data+2+2*(b->height+1);const uint8_t*p=base+assetOffset(data+2+row*2),*stop=base+assetOffset(data+4+row*2);int x=0;
+ while(p<stop&&x<end){int count=*p++;uint8_t colour=*p++;int a=std::max(x,first),z=std::min(x+count,end);if(colour&&a<z)memset(dst+a-first,colour,z-a);x+=count;}
 }
 void paintRasterBand(int top){for(int row=0;row<BAND_H;++row)backgroundRow(top+row,bandPixels+row*640);
  for(int n=0;n<rasterCount;++n){const RasterOp&o=rasterOps[n];int height=(o.kind==2||o.kind==4)?8:o.h;int y0=std::max(top,int(o.y)),y1=std::min(top+BAND_H,int(o.y)+height);if(y0>=y1)continue;
   if(o.kind==0){for(int y=y0;y<y1;++y)span(bandPixels+(y-top)*640,o.x,o.x+o.w-1,o.colour);}
-  else if(o.kind==1||o.kind==3){int x0=std::max(o.kind==3?viewLeft():0,int(o.x)),x1=std::min(o.kind==3?viewRight()+1:640,int(o.x)+o.w);if(o.kind==3){y0=std::max(28,y0);y1=std::min(192,y1);}if(x0>=x1)continue;for(int y=y0;y<y1;++y){const uint8_t*src=o.bitmap->data+(y-o.y)*o.w+(x0-o.x);uint8_t*dst=bandPixels+(y-top)*640+x0;
-    // All opaque artwork can be copied without a per-pixel alpha test.
-    if(o.bitmap==&bmpTitle[0])memcpy(dst,src,x1-x0);else for(int x=x0;x<x1;++x){uint8_t p=*src++;if(p)*dst=p;++dst;}}}
+  else if(o.kind==1||o.kind==3){int x0=std::max(o.kind==3?viewLeft():0,int(o.x)),x1=std::min(o.kind==3?viewRight()+1:640,int(o.x)+o.w);if(o.kind==3){y0=std::max(28,y0);y1=std::min(192,y1);}if(x0>=x1)continue;for(int y=y0;y<y1;++y)bitmapSpan(o.bitmap,y-o.y,x0-o.x,x1-o.x,bandPixels+(y-top)*640+x0);}
+
   else{for(int y=y0;y<y1;++y){uint8_t*dst=bandPixels+(y-top)*640;for(int ch=0;ch<o.w;++ch){unsigned char c=textPool[o.h+ch];if(c<32||c>127)c='?';uint8_t bits=hudFont[c-32][y-o.y];int x=o.x+ch*8;for(int b=0;b<8;++b)if((bits&(128>>b))&&x+b>=(o.kind==4?viewLeft():0)&&x+b<=(o.kind==4?viewRight():639))dst[x+b]=o.colour;}}}
  }}
 // The native ESP32 can bypass the Canvas command queue completely.
@@ -35,7 +44,7 @@ void paintRasterBand(int top){for(int row=0;row<BAND_H;++row)backgroundRow(top+r
 #define BXRUN_NATIVE_RASTER 1
 uint8_t nativePalette[64];bool paletteReady=false;
 void copyNativeBand(int top){if(!paletteReady){for(int c=0;c<64;++c)nativePalette[c]=DisplayController.createRawPixel(RGB222(c&3,(c>>2)&3,(c>>4)&3));paletteReady=true;}
- for(int y=0;y<BAND_H;++y){volatile uint32_t*dst=reinterpret_cast<volatile uint32_t*>(DisplayController.getScanline(top+y));const uint8_t*src=bandPixels+y*640;
+ for(int y=0;y<BAND_H;++y){volatile uint32_t*dst=reinterpret_cast<volatile uint32_t*>(DisplayController.getScanline(top+y));if(!dst||(reinterpret_cast<uintptr_t>(dst)&3))return;const uint8_t*src=bandPixels+y*640;
   int left=(!refreshMargins&&!mapDirty&&rasterRoad&&!wideView&&top+y>=28&&top+y<136)?64:0;int right=left?576:640;dst+=left/4;for(int x=left;x<right;x+=4){uint32_t p0=nativePalette[src[x]&63],p1=nativePalette[src[x+1]&63],p2=nativePalette[src[x+2]&63],p3=nativePalette[src[x+3]&63];*dst++=p2|(p3<<8)|(p0<<16)|(p1<<24);}}}
 #endif
 void endRaster(){rasterActive=false;canvas.waitCompletion(false);canvas.beginUpdate();for(int y=0;y<200;y+=BAND_H){paintRasterBand(y);
